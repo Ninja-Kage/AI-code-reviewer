@@ -182,7 +182,7 @@ Each review gets a 0–100 quality score:
 | 60–79 | ⚠️ Address warnings first |
 | 0–59 | ❌ Do not merge — critical issues found |
 
-Score = blend of GPT-4's holistic assessment (60%) + rule-based deductions (40%)
+Score = blend of the LLM's holistic assessment (60%) + rule-based deductions (40%)
 
 ---
 
