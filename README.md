@@ -2,7 +2,7 @@
 
 An automated, AI-powered GitHub pull request reviewer that acts like a senior engineer — catching bugs, security issues, and bad patterns before they hit main.
 
-Built with **FastAPI + GPT-4 + PyGithub + React**.
+Built with **FastAPI + Groq + PyGithub + React**.
 
 ---
 
