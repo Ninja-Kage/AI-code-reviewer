@@ -1,211 +1,184 @@
-# AI Code Reviewer 🤖
+# AI Code Reviewer
 
-An automated, AI-powered GitHub pull request reviewer that acts like a senior engineer — catching bugs, security issues, and bad patterns before they hit main.
+A self-hosted code review system that hooks into your GitHub repos and automatically reviews pull requests using Groq's LLM API. It stores review history in PostgreSQL and serves everything through a React frontend.
 
-Built with **FastAPI + Groq + PyGithub + React**.
-
----
-
-## How it works
-
-1. Developer opens a Pull Request on GitHub
-2. GitHub fires a webhook to your server
-3. Your server fetches the code diff via GitHub API
-4. The diff is parsed into clean, per-file chunks
-5. **GPT-4** reviews the chunks for bugs, security issues, and style
-6. **Pylint / ESLint** runs static analysis in parallel
-7. Both outputs are merged, scored, and deduplicated
-8. Inline comments + a summary are posted back to the PR automatically
+I built this because I was tired of waiting on teammates to review small PRs, and I wanted something that actually understands context — not just a linter.
 
 ---
 
-## Project structure
+## What it does
+
+- Listens for GitHub webhook events (pull requests, pushes)
+- Sends the diff to Groq and gets back a structured code review
+- Stores the review history in a PostgreSQL database
+- Displays reviews in a clean React UI
+- Runs entirely in Docker, so setup is straightforward
+
+---
+
+## Stack
+
+- **Backend** — Python (FastAPI), runs on port 8000
+- **Frontend** — React
+- **Database** — PostgreSQL
+- **LLM** — Groq (`llama-3.3-70b-versatile` by default, configurable)
+- **Infrastructure** — Docker Compose
+
+---
+
+## Prerequisites
+
+Before anything else, make sure you have:
+
+- Docker + Docker Compose installed
+- A [Groq API key](https://console.groq.com)
+- A GitHub repo you want to connect (you'll need to set up a webhook)
+
+---
+
+## Getting started
+
+### 1. Clone the repo
+
+```bash
+git clone https://github.com/yourusername/ai-code-reviewer.git
+cd ai-code-reviewer
+```
+
+### 2. Set up environment variables
+
+Copy the example env file and fill in your values:
+
+```bash
+cp .env.example .env
+```
+
+Your `.env` should look like this:
+
+```env
+GITHUB_TOKEN=your_github_token_here
+GITHUB_WEBHOOK_SECRET=your_webhook_secret_here
+GROQ_API_KEY=your_groq_api_key_here
+GROQ_MODEL=llama-3.3-70b-versatile
+POSTGRES_PASSWORD=your_db_password_here
+```
+
+> **Note:** Never commit your `.env` file. It's already in `.gitignore` but worth double-checking.
+
+### 3. Start everything
+
+```bash
+docker compose up --build
+```
+
+The first run will take a minute while it pulls images and builds the backend. After that, subsequent starts are fast.
+
+- Backend: `http://localhost:8000`
+- Frontend: `http://localhost:3000` (or wherever your React dev server is configured)
+
+---
+
+## GitHub Webhook Setup
+
+For the reviewer to actually receive events from GitHub, you need to configure a webhook on your repo:
+
+1. Go to your GitHub repo → **Settings** → **Webhooks** → **Add webhook**
+2. Set the **Payload URL** to your backend's `/webhook` endpoint:
+   ```
+   http://your-server-ip:8000/webhook
+   ```
+   If you're running locally, use something like [ngrok](https://ngrok.com) to expose your local server.
+3. Set **Content type** to `application/json`
+4. Set the **Secret** to whatever you put in `GITHUB_WEBHOOK_SECRET`
+5. Choose **Pull requests** (and optionally **Pushes**) as the events to send
+6. Hit **Add webhook**
+
+GitHub will send a ping event — if you see a green checkmark, you're good.
+
+---
+
+## Project Structure
 
 ```
 ai-code-reviewer/
 ├── backend/
-│   ├── main.py            # FastAPI app + webhook endpoint + REST API
-│   ├── github_client.py   # GitHub API — fetch diffs, post comments
-│   ├── diff_parser.py     # Parse unified diffs into clean chunks
-│   ├── llm_engine.py      # GPT-4 review logic with structured JSON output
-│   ├── rule_checker.py    # Pylint (Python) + pattern checks (JS/TS)
-│   ├── aggregator.py      # Merge, deduplicate, score all feedback
-│   ├── models.py          # SQLAlchemy DB models
-│   ├── database.py        # DB connection + session management
 │   ├── Dockerfile
+│   ├── main.py
+│   ├── reviewer.py        # Groq API integration
+│   ├── webhook.py         # GitHub webhook handler
+│   ├── database.py        # PostgreSQL models / queries
 │   └── requirements.txt
 ├── frontend/
 │   ├── src/
-│   │   ├── App.js
-│   │   ├── App.css
-│   │   ├── index.js
-│   │   └── pages/
-│   │       ├── Dashboard.js     # Stats + reviews table + score chart
-│   │       └── ReviewDetail.js  # Full review with inline comments
-│   ├── public/index.html
-│   ├── package.json
-│   └── Dockerfile
+│   └── ...
 ├── docker-compose.yml
 ├── .env.example
-├── .gitignore
 └── README.md
 ```
 
 ---
 
-## Quick start
+## Configuration
 
-### 1. Clone and configure
+| Variable | Description | Default |
+|---|---|---|
+| `GITHUB_TOKEN` | GitHub personal access token | required |
+| `GITHUB_WEBHOOK_SECRET` | Secret for validating webhook payloads | required |
+| `GROQ_API_KEY` | Your Groq API key | required |
+| `GROQ_MODEL` | Groq model to use for reviews | `llama-3.3-70b-versatile` |
+| `POSTGRES_PASSWORD` | Database password | required |
+
+If you want to swap the model, just update `GROQ_MODEL` in your `.env`. Groq's available models are listed [here](https://console.groq.com/docs/models).
+
+---
+
+## Common issues
+
+**`invalid interpolation format` error on startup**
+Check your `docker-compose.yml` for any `${VAR:-default}` entries missing the closing `}`. Docker Compose is strict about this.
+
+**Webhook events not being received**
+- Make sure your server is publicly accessible (use ngrok locally)
+- Double-check that `GITHUB_WEBHOOK_SECRET` matches exactly what you entered in GitHub
+- Look at the webhook delivery logs in GitHub (Settings → Webhooks → Recent Deliveries)
+
+**DB connection errors on startup**
+The backend depends on the database being healthy before it starts. If you're seeing connection errors, the `healthcheck` on the `db` service might not be passing. Give it 30 seconds and try again, or check `docker compose logs db`.
+
+---
+
+## Development
+
+To run with hot reload (volume is already mounted in `docker-compose.yml`):
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/ai-code-reviewer
-cd ai-code-reviewer
-cp .env.example .env
+docker compose up
 ```
 
-Edit `.env` and fill in your keys:
+Any changes to `./backend` will reflect immediately without rebuilding.
 
-```env
-GITHUB_TOKEN=ghp_...
-GITHUB_WEBHOOK_SECRET=any_random_string_you_choose
-OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-4o
-```
+For the frontend, you'll likely want to run it outside Docker during development:
 
-### 2. Run with Docker (recommended)
-
-```bash
-docker-compose up --build
-```
-
-- Backend API:  http://localhost:8000
-- Frontend:     http://localhost:3000
-- API docs:     http://localhost:8000/docs
-
-### 3. Run locally (without Docker)
-
-**Backend:**
-```bash
-cd backend
-python -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
-```
-
-**Frontend:**
 ```bash
 cd frontend
 npm install
-npm start
+npm run dev
 ```
 
 ---
 
-## Setting up the GitHub Webhook
+## Roadmap
 
-1. Go to your GitHub repo → **Settings → Webhooks → Add webhook**
-2. **Payload URL:** `https://YOUR_SERVER_URL/webhook`
-   - For local development, use [ngrok](https://ngrok.com): `ngrok http 8000`
-   - Copy the HTTPS URL ngrok gives you
-3. **Content type:** `application/json`
-4. **Secret:** The same value as `GITHUB_WEBHOOK_SECRET` in your `.env`
-5. **Events:** Select **"Pull requests"** only
-6. Click **Add webhook**
+Things I'm planning to add:
 
-Now open a PR on that repo — the bot will review it within ~30 seconds.
-
----
-
-## Getting API keys
-
-### GitHub Token
-1. Go to https://github.com/settings/tokens
-2. Click **Generate new token (classic)**
-3. Scopes needed: `repo` (full), `pull_requests`
-4. Copy the token → paste into `.env` as `GITHUB_TOKEN`
-
-### OpenAI API Key
-1. Go to https://platform.openai.com/api-keys
-2. Click **Create new secret key**
-3. Copy it → paste into `.env` as `OPENAI_API_KEY`
-4. Make sure you have billing set up (GPT-4o costs ~$0.01–0.05 per PR review)
-
----
-
-## API endpoints
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/webhook` | GitHub webhook receiver |
-| GET | `/api/reviews` | List all reviews (dashboard) |
-| GET | `/api/reviews/{id}` | Single review with all comments |
-| GET | `/api/stats` | Aggregate stats for overview cards |
-| GET | `/api/health` | Health check |
-| GET | `/docs` | Interactive Swagger API docs |
-
----
-
-## What the bot reviews
-
-**GPT-4 catches:**
-- Logic bugs and null pointer risks
-- Security vulnerabilities (SQL injection, XSS, hardcoded secrets)
-- Performance problems (N+1 queries, memory leaks)
-- Missing error handling
-- Unclear variable names and dead code
-
-**Pylint catches (Python):**
-- Syntax errors and import failures
-- Unused variables and imports
-- Dangerous default arguments
-- Broad except clauses
-- Missing docstrings
-
-**Pattern checks (JS/TS):**
-- `eval()` usage
-- `var` instead of `const`/`let`
-- `==` instead of `===`
-- Hardcoded credentials
-- Empty catch blocks
-- Unresolved TODOs
-
----
-
-## Scoring system
-
-Each review gets a 0–100 quality score:
-
-| Score | Meaning |
-|-------|---------|
-| 80–100 | ✅ Good to merge |
-| 60–79 | ⚠️ Address warnings first |
-| 0–59 | ❌ Do not merge — critical issues found |
-
-Score = blend of the LLM's holistic assessment (60%) + rule-based deductions (40%)
-
----
-
-## Resume bullet
-
-> *"Built an end-to-end AI code review bot using FastAPI, GPT-4, PyGithub, and React. The system receives GitHub webhooks, parses PR diffs, runs parallel LLM + static analysis (Pylint/ESLint), and posts inline review comments with severity scores. Features a React dashboard with score trends and review history. Deployed with Docker + PostgreSQL."*
-
----
-
-## Tech stack
-
-| Layer | Technology |
-|-------|-----------|
-| Backend | Python 3.11, FastAPI, Uvicorn |
-| AI review | OpenAI GPT-4o (JSON mode) |
-| GitHub integration | PyGithub, GitHub REST API v3 |
-| Static analysis | Pylint, custom regex rules |
-| Database | PostgreSQL + SQLAlchemy ORM |
-| Frontend | React 18, Recharts, React Router |
-| Deployment | Docker, docker-compose |
+- [ ] PR comment posting directly to GitHub (right now reviews only show in the UI)
+- [ ] Severity levels for review feedback (critical / warning / suggestion)
+- [ ] Support for multiple repos from a single dashboard
+- [ ] Review history filtering and search
+- [ ] Slack notifications when a review is ready
 
 ---
 
 ## License
 
-MIT — free to use, fork, and put on your resume.
+MIT
